@@ -37,6 +37,16 @@ def rankings(client, display=False):
     return results
 
 
+def game_history(client):
+    my_query = """
+               SELECT *
+               FROM `pingpong-322517.PingPong.history`
+               ORDER BY id DESC
+               """
+    game_history = client.query(my_query).to_dataframe()
+    return game_history
+
+
 def head2head(client, player1, player2):
     """
     Returns a head-to-head of the two specified players
@@ -146,6 +156,82 @@ def update_history(client, ranks, hist):
     hist_update.result()
 
     print(f"Rankings updated for row index {rank_vals[-1]}")
+
+
+def update_game_history(client, person1, person2, winner):
+    my_query = """
+               SELECT *
+               FROM `pingpong-322517.PingPong.history`
+               """
+
+    game_hist = game_history(client)
+    idx_to_add = game_hist.id.max() + 1
+
+    update = f"{idx_to_add}, '{person1}', '{person2}', '{winner}'"
+    my_update_query = f"""
+                      INSERT INTO `pingpong-322517.PingPong.history` (id, player1, player2, winner)
+                      VALUES ({update})
+                      """
+    game_history_update = client.query(my_update_query)
+    game_history_update.result()
+
+    print(f"Rankings updated for game between {person1} and {person2}")
+
+
+def delete_previous_game_history(client):
+    game_hist = game_history(client)
+    idx_to_delete = game_hist.id.max()
+
+    my_query = f"""
+                DELETE FROM `pingpong-322517.PingPong.history`
+                WHERE id = {idx_to_delete}
+                """
+
+    safe_config = bigquery.QueryJobConfig(maximum_bytes_billed=10 ** 10)
+    my_query_job = client.query(my_query, job_config=safe_config)
+    print(f"Deleted column with id = {idx_to_delete}")
+
+
+def delete_previous_history(client):
+    hist = history(client)
+    idx_to_delete = hist.id.max()
+
+    my_query = f"""
+                DELETE FROM `pingpong-322517.PingPong.ranking_history`
+                WHERE id = {idx_to_delete}
+                """
+
+    safe_config = bigquery.QueryJobConfig(maximum_bytes_billed=10 ** 10)
+    my_query_job = client.query(my_query, job_config=safe_config)
+    print(f"Deleted column with id = {idx_to_delete}")
+
+
+def revert_back_rankings(client):
+
+    # get newly updated game result
+    recent_game = game_history(client)
+    recent_game = recent_game.loc[recent_game["id"] == recent_game.id.max()]
+    names_to_update = recent_game.values.tolist()[0][1:-1]
+
+    # get old scores
+    hist = history(client)
+    idx_to_update = hist.id.max() - 1
+    old_scores = hist.loc[hist["id"] == idx_to_update].to_dict("records")[0]
+
+    my_query1 = f"""
+               UPDATE `pingpong-322517.PingPong.current_rank`
+               SET rating = {old_scores[names_to_update[0]]}, games = games - 1
+               WHERE name = '{names_to_update[0]}'
+               """
+    my_query2 = f"""
+            UPDATE `pingpong-322517.PingPong.current_rank`
+            SET rating = {old_scores[names_to_update[1]]}, games = games - 1
+            WHERE name = '{names_to_update[1]}'
+            """
+    safe_config = bigquery.QueryJobConfig(maximum_bytes_billed=10 ** 10)
+    my_query_job = client.query(my_query1, job_config=safe_config)
+    my_query_job = client.query(my_query2, job_config=safe_config)
+    print(f"Reverted scores")
 
 
 if __name__ == "__main__":
